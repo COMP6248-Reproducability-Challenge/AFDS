@@ -1,5 +1,2 @@
 # DeepLearningCourseWork
-## !!!
-### fenzhi test
 
-### test
