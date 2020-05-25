@@ -69,7 +69,6 @@ class Bottleneck(nn.Module):
         self.stride = stride
 
     def forward(self, x):
-        print('-' * 10, self.gamma1)
         self.ratio = _Graph.get_global_var('ratio')
         residual = x
 

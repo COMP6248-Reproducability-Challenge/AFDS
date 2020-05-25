@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torchvision import datasets, models, transforms
-from torchvision.models import resnet101,resnet50
+from torchvision.models import resnet101, resnet50
 from torch.utils.data import DataLoader
 import time
 import argparse
@@ -19,6 +19,7 @@ import numpy as np
 from torchnet import meter
 from PIL import ImageFile
 from afsnet import AFSNet, _Graph, Bottleneck
+from afdnet import AFDNet
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -27,22 +28,19 @@ from data.load import load_datasets
 parser = argparse.ArgumentParser(description='DELTA')
 parser.add_argument('--data_dir')
 parser.add_argument('--save_model', default='')
-parser.add_argument('--base_model', choices=['resnet101','resnet50'], default='resnet101')
+parser.add_argument('--base_model', choices=['resnet101', 'resnet50'], default='resnet101')
 parser.add_argument('--max_iter', type=int, default=9000)
 parser.add_argument('--image_size', type=int, default=224)
 parser.add_argument('--batch_size', type=int, default=16)
 parser.add_argument('--lr_scheduler', choices=['steplr', 'explr'], default='steplr')
 parser.add_argument('--lr_init', type=float, default=0.01)
-parser.add_argument('--reg_type', choices=['l2', 'l2_sp', 'fea_map', 'att_fea_map'], default='l2')
-parser.add_argument('--channel_wei', default='')
-parser.add_argument('--alpha', type=float, default=0.01)
-parser.add_argument('--beta', type=float, default=0.01)
+parser.add_argument('--reg_type', choices=['l2', 'l2_sp', 'fea_map', 'afd'], default='afd')
+parser.add_argument('--lambda_afd', type=float, default=0.01)
 parser.add_argument('--ratio', type=float, default=0.5)
 args = parser.parse_args()
 
 print(args)
 device = torch.device("cuda:0")
-
 
 # Load dataset
 set_name = 'stanford_dogs'
@@ -56,9 +54,11 @@ num_classes = len(class_names)
 # Initial ratio
 _Graph.set_global_var('ratio', args.ratio)
 
+
 # Define model
 def get_base_model(base_model):
     return eval(base_model)(pretrained=True)
+
 
 model_source = get_base_model(args.base_model)
 model_source.to(device)
@@ -70,30 +70,19 @@ model_source_weights = {}
 for name, param in model_source.named_parameters():
     model_source_weights[name] = param.detach()
 
+# load target model
 model_pretrained = models.resnet101(pretrained=True)
 model_target = AFSNet(Bottleneck, [3, 4, 23, 3], num_classes=num_classes)
 pretrained_dict = model_pretrained.state_dict()
-print(pretrained_dict.__len__())
 model_dict = model_target.state_dict()
 pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-print(pretrained_dict.__len__())
 model_dict.update(pretrained_dict)
 model_target.load_state_dict(model_dict)
-print(model_dict.__len__())
 
-#model_target=models.resnet101(pretrained=True)
+# model_target=models.resnet101(pretrained=True)
 # model_target = get_base_model(args.base_model)
 # model_target.fc = nn.Linear(2048, num_classes)
 model_target.to(device)
-
-channel_weights = []
-if args.reg_type == 'att_fea_map' and args.channel_wei:
-    for js in json.load(open(args.channel_wei)):
-        js = np.array(js)
-        js = (js - np.mean(js)) / np.std(js)
-        cw = torch.from_numpy(js).float().to(device)
-        cw = F.softmax(cw / 5).detach()
-        channel_weights.append(cw)
 
 layer_outputs_source = []
 layer_outputs_target = []
@@ -110,6 +99,10 @@ def for_hook_target(module, input, output):
 fc_name = 'fc.'
 if args.base_model == 'resnet101':
     hook_layers = ['layer1.2.conv3', 'layer2.3.conv3', 'layer3.22.conv3', 'layer4.2.conv3']
+    afdnet = [AFDNet(56 * 56, 56, 1).to(device),
+              AFDNet(28 * 28, 28, 1).to(device),
+              AFDNet(14 * 14, 14, 1).to(device),
+              AFDNet(7 * 7, 7, 1).to(device)]
 elif args.base_model == 'resnet50':
     hook_layers = ['layer1.2.conv3', 'layer2.3.conv3', 'layer3.22.conv3', 'layer4.2.conv3']
 else:
@@ -126,14 +119,6 @@ register_hook(model_source, for_hook_source)
 register_hook(model_target, for_hook_target)
 
 
-def reg_classifier(model):
-    l2_cls = torch.tensor(0.).to(device)
-    for name, param in model.named_parameters():
-        if name.startswith(fc_name):
-            l2_cls += 0.5 * torch.norm(param) ** 2
-    return l2_cls
-
-
 def reg_l2sp(model):
     fea_loss = torch.tensor(0.).to(device)
     for name, param in model.named_parameters():
@@ -146,28 +131,21 @@ def reg_fea_map(inputs):
     _ = model_source(inputs)
     fea_loss = torch.tensor(0.).to(device)
     for fm_src, fm_tgt in zip(layer_outputs_source, layer_outputs_target):
-        b, c, h, w = fm_src.shape
         fea_loss += 0.5 * (torch.norm(fm_tgt - fm_src.detach()) ** 2)
     return fea_loss
 
 
-def reg_att_fea_map(inputs):
+def reg_afd(inputs):
     _ = model_source(inputs)
     fea_loss = torch.tensor(0.).to(device)
     for i, (fm_src, fm_tgt) in enumerate(zip(layer_outputs_source, layer_outputs_target)):
-        b, c, h, w = fm_src.shape
-        fm_src = flatten_outputs(fm_src)
-        fm_tgt = flatten_outputs(fm_tgt)
-        div_norm = h * w
-        distance = torch.norm(fm_tgt - fm_src.detach(), 2, 2)
-        distance = c * torch.mul(channel_weights[i], distance ** 2) / (h * w)
-        fea_loss += 0.5 * torch.sum(distance)
+        layer_loss = torch.norm(fm_tgt - fm_src, p=2, dim=(2, 3)) * afdnet[i](fm_src)
+        fea_loss += torch.sum(layer_loss) / inputs.size(0)
     return fea_loss
 
 
 def flatten_outputs(fea):
     return torch.reshape(fea, (fea.shape[0], fea.shape[1], fea.shape[2] * fea.shape[3]))
-
 
 
 def train_model(model, criterion, optimizer, scheduler, num_epochs):
@@ -201,31 +179,28 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs):
                     loss_main = criterion(outputs, labels)
                     loss_classifier = 0
                     loss_feature = 0
-                    if not args.reg_type == 'l2':
-                        loss_classifier = reg_classifier(model)
                     if args.reg_type == 'l2_sp':
                         loss_feature = reg_l2sp(model)
                     elif args.reg_type == 'fea_map':
                         loss_feature = reg_fea_map(inputs)
-                    elif args.reg_type == 'att_fea_map':
-                        loss_feature = reg_att_fea_map(inputs)
-                    loss = loss_main + args.alpha * loss_feature + args.beta * loss_classifier
+                    elif args.reg_type == 'afd':
+                        loss_feature = reg_afd(inputs)
+                    loss = loss_main + args.lambda_afd * loss_feature
 
                     _, preds = torch.max(outputs, 1)
-                    #confusion_matrix.add(preds.data, labels.data)
+                    # confusion_matrix.add(preds.data, labels.data)
                     if phase == 'train' and i % 10 == 0:
-                        corr_sum = torch.sum(preds.data == labels.data)
+                        corr_sum = torch.sum(preds == labels.data)
                         step_acc = corr_sum.double() / len(labels)
-                        print('step: %d/%d, loss = %.4f(%.4f, %.4f, %.4f), top1 = %.4f' % (
-                            i, nstep, loss, loss_main, args.alpha * loss_feature, args.beta * loss_classifier,
-                            step_acc))
+                        print('step: %d/%d, loss = %.4f(%.4f, %.4f), top1 = %.4f' % (
+                            i, nstep, loss, loss_main, args.lambda_afd * loss_feature,step_acc))
 
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
 
                 running_loss += loss.item() * inputs.size(0)
-                running_corrects += torch.sum(preds.data == labels.data)
+                running_corrects += torch.sum(preds == labels.data)
 
                 layer_outputs_source.clear()
                 layer_outputs_target.clear()
@@ -252,13 +227,17 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs):
     return model
 
 
+params = list(filter(lambda p: p.requires_grad, model_target.parameters()))\
+         + list(afdnet[0].parameters())\
+         + list(afdnet[1].parameters())\
+         + list(afdnet[2].parameters())\
+         + list(afdnet[3].parameters())
 if args.reg_type == 'l2':
-    optimizer_ft = optim.SGD(filter(lambda p: p.requires_grad, model_target.parameters()),
-                             lr=args.lr_init, momentum=0.9, weight_decay=1e-4)
+    optimizer_ft = optim.SGD(params,lr=args.lr_init, momentum=0.9, weight_decay=1e-4)
 else:
-    optimizer_ft = optim.SGD(filter(lambda p: p.requires_grad, model_target.parameters()),
-                             lr=args.lr_init, momentum=0.9)
+    optimizer_ft = optim.SGD(params,lr=args.lr_init, momentum=0.9)
 
+# epoch calculated by sgd steps
 num_epochs = int(args.max_iter * args.batch_size / dataset_sizes['train'])
 decay_epochs = int(0.67 * args.max_iter * args.batch_size / dataset_sizes['train']) + 1
 print('StepLR decay epochs = %d' % decay_epochs)
