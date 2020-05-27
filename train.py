@@ -20,7 +20,10 @@ from torchnet import meter
 from PIL import ImageFile
 from afsnet import AFSNet, _Graph, Bottleneck
 from afdnet import AFDNet
-
+from update import update_param
+from update import update_gama_l
+from update import update_m_l
+from update import update_sl
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from data.load import load_datasets
@@ -109,10 +112,16 @@ else:
     assert False
 
 
+# def register_hook(model, func):
+#     for name, layer in model.named_modules():
+#         if name in hook_layers:
+#             layer.register_forward_hook(func)
+
+## new version hook function, the layer_outputs_targer get all gate layers outputs
 def register_hook(model, func):
-    for name, layer in model.named_modules():
-        if name in hook_layers:
-            layer.register_forward_hook(func)
+    for layer in model.modules():
+        if isinstance(layer, nn.Linear):
+            layer.register_forward_hook(hook=func)
 
 
 register_hook(model_source, for_hook_source)
@@ -249,6 +258,12 @@ elif args.lr_scheduler == 'explr':
 
 criterion = nn.CrossEntropyLoss()
 train_model(model_target, criterion, optimizer_ft, lr_decay, num_epochs)
+# updating
+# threshold_m and threshold_s is not defined
+# mean_para,var_para, pro =update_param(layer_outputs_target, ratio)
+# update_sl(model_target, threshold_s, var_para)
+# update_gama_l(model_target,mean_para)
+# update_m_l(model_target,pro,threshold_m)
 
 if args.save_model != '':
     torch.save(model_target, args.save_model)
