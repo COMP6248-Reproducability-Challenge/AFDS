@@ -89,6 +89,7 @@ model_target.to(device)
 
 layer_outputs_source = []
 layer_outputs_target = []
+layer_outputs_h_l =[]
 
 
 def for_hook_source(module, input, output):
@@ -97,6 +98,10 @@ def for_hook_source(module, input, output):
 
 def for_hook_target(module, input, output):
     layer_outputs_target.append(output)
+
+def for_hook_h_l(module, input, output):
+    layer_outputs_h_l.append(output)
+
 
 
 fc_name = 'fc.'
@@ -112,13 +117,16 @@ else:
     assert False
 
 
-# def register_hook(model, func):
-#     for name, layer in model.named_modules():
-#         if name in hook_layers:
-#             layer.register_forward_hook(func)
+def register_hook(model, func):
+    for name, layer in model.named_modules():
+        if name in hook_layers:
+            layer.register_forward_hook(func)
+
 
 ## new version hook function, the layer_outputs_targer get all gate layers outputs
-def register_hook(model, func):
+
+
+def register_hook_h_l(model, func):
     for layer in model.modules():
         if isinstance(layer, nn.Linear):
             layer.register_forward_hook(hook=func)
@@ -126,7 +134,7 @@ def register_hook(model, func):
 
 register_hook(model_source, for_hook_source)
 register_hook(model_target, for_hook_target)
-
+register_hook_h_l(model_target, for_hook_h_l)
 
 def reg_l2sp(model):
     fea_loss = torch.tensor(0.).to(device)
@@ -258,9 +266,11 @@ elif args.lr_scheduler == 'explr':
 
 criterion = nn.CrossEntropyLoss()
 train_model(model_target, criterion, optimizer_ft, lr_decay, num_epochs)
+
+print(layer_outputs_h_l.__len__())
 # updating
 # threshold_m and threshold_s is not defined
-# mean_para,var_para, pro =update_param(layer_outputs_target, ratio)
+# mean_para,var_para, pro =update_param(layer_outputs_h_l, ratio)
 # update_sl(model_target, threshold_s, var_para)
 # update_gama_l(model_target,mean_para)
 # update_m_l(model_target,pro,threshold_m)
