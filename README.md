@@ -20,7 +20,9 @@ We evaluate the methods with 6 diferent benchmark datasets: Caltech-256 (Grin et
 -  `transforms.Normalize`, normalizing the data by channel, that is, first subtract the mean and then divide by the standard deviation.
 
 ## Training
-- `train.py`
+
+ `train.py`
+
 **Arguments:**
 - 'lr_init': The learning rate of initialization. default = `0.01`.
 - 'max_iter': Maximum number of iterations for algorithm convergence, int type, default is 4500.
