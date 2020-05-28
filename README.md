@@ -29,7 +29,7 @@ We evaluate the methods with 6 diferent benchmark datasets: Caltech-256 (Grin et
 - 'image_size'：Scaling images to this size before cropping.
 - `batch_size` : Batch size. default= `48`
 - 'lr_scheduler': The module provides some methods to adjust the learning rate based on the number of epoch trainings. Under normal     circumstances, with the increase of epoch, the learning rate is gradually reduced to achieve a better training effect.
-- 'lambda_afd': ？？？
+- 'lambda_afd': Used for image capture， default = `0.01`
 - 'ratio':  Helping to aspect ratio of output images `width/height`.default is 0.9.
 - 'thres_s': 不知道
 - 'thres_m': 小朋友的疑惑
