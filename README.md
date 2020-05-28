@@ -12,6 +12,7 @@ We used [this](https://github.com/uhomelee/DeepLearningCourseWork) project as ba
 - Python 2.7
 - PyTorch 
 This implementation only supports running with GPUs.
+##
 
 
 ## Team members:
