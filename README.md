@@ -6,5 +6,7 @@ Pytorch implement of [Pay Attention to Features, Transfer Learn Faster CNNs](htt
 
 ## Team members:
 Youhong Li [yl41n19@soton.ac.uk]
+
 Jiewei Chen [jc17n19@soton.ac.uk]
+
 Xuelian Yao [xy1m19@soton.ac.uk]
