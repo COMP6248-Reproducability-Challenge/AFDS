@@ -28,10 +28,9 @@ class TorchGraph(object):
     def get_global_var(self, name):
         return self._graph[name]
 
-
 _Graph = TorchGraph()
-#_Graph.add_tensor_list('gate_values')
-_Graph.set_global_var('ratio', 1.0)
+_Graph_q=TorchGraph()
+_Graph_pi=TorchGraph()
 
 
 class Bottleneck(nn.Module):
@@ -40,6 +39,8 @@ class Bottleneck(nn.Module):
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.ratio = 1.0  # refer to d in winner take all
+        self.thres_s=_Graph.get_global_var('thres_s')
+        self.thres_m=_Graph.get_global_var('thres_m')
         # 1x1 conv
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -86,7 +87,12 @@ class Bottleneck(nn.Module):
         out = self.bn1(out)
         out = self.s1 * gates1.unsqueeze(2).unsqueeze(3) * out
         out = out + (1.0 - self.s1) * gamma1.unsqueeze(2).unsqueeze(3)*out
+        if not self.training:
+            _Graph_q.append_tensor(_Graph.get_global_var('layer'),torch.mean(out))
         out = self.m1 * out
+        if not self.training:
+            _Graph_pi.append_tensor(_Graph.get_global_var('layer'),torch.mean(out))
+            _Graph.set_global_var('layer',_Graph.get_global_var('layer')+1)
         out = self.relu(out)
 
         # bottleneck two
@@ -103,7 +109,12 @@ class Bottleneck(nn.Module):
         out = self.bn2(out)
         out = self.s2 * gates2.unsqueeze(2).unsqueeze(3) * out
         out = out + (1.0 - self.s2) * gamma2.unsqueeze(2).unsqueeze(3)*out
+        if not self.training:
+            _Graph_q.append_tensor(_Graph.get_global_var('layer'),torch.mean(out))
         out = self.m2 * out
+        if not self.training:
+            _Graph_pi.append_tensor(_Graph.get_global_var('layer'),torch.mean(out))
+            _Graph.set_global_var('layer',_Graph.get_global_var('layer')+1)
         out = self.relu(out)
 
         # bottleneck three
@@ -121,7 +132,12 @@ class Bottleneck(nn.Module):
         out = self.bn3(out)
         out = self.s3 * gates3.unsqueeze(2).unsqueeze(3) * out
         out = out + (1.0 - self.s3) * gamma3.unsqueeze(2).unsqueeze(3)*out
+        if not self.training:
+            _Graph_q.append_tensor(_Graph.get_global_var('layer'),torch.mean(out))
         out = self.m3 * out
+        if not self.training:
+            _Graph_pi.append_tensor(_Graph.get_global_var('layer'),torch.mean(out))
+            _Graph.set_global_var('layer',_Graph.get_global_var('layer')+1)
         out = self.relu(out)
 
         if self.downsample is not None:
@@ -176,6 +192,8 @@ class AFSNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        if not self.training:
+            _Graph.set_global_var('layer',0)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)

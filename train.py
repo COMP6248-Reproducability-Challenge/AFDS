@@ -6,24 +6,17 @@ import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 from torchvision import datasets, models, transforms
 from torchvision.models import resnet101, resnet50
 from torch.utils.data import DataLoader
 import time
 import argparse
 import math
-import json
-import pickle
-import numpy as np
-from torchnet import meter
 from PIL import ImageFile
 from afsnet import AFSNet, _Graph, Bottleneck
 from afdnet import AFDNet
-from update import update_param
-from update import update_gama_l
-from update import update_m_l
-from update import update_sl
+from update import update_afs
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from data.load import load_datasets
@@ -32,14 +25,16 @@ parser = argparse.ArgumentParser(description='DELTA')
 parser.add_argument('--data_dir')
 parser.add_argument('--save_model', default='')
 parser.add_argument('--base_model', choices=['resnet101', 'resnet50'], default='resnet101')
-parser.add_argument('--max_iter', type=int, default=9000)
+parser.add_argument('--max_iter', type=int, default=4500)
 parser.add_argument('--image_size', type=int, default=224)
-parser.add_argument('--batch_size', type=int, default=16)
+parser.add_argument('--batch_size', type=int, default=48)
 parser.add_argument('--lr_scheduler', choices=['steplr', 'explr'], default='steplr')
 parser.add_argument('--lr_init', type=float, default=0.01)
 parser.add_argument('--reg_type', choices=['l2', 'l2_sp', 'fea_map', 'afd'], default='afd')
 parser.add_argument('--lambda_afd', type=float, default=0.01)
-parser.add_argument('--ratio', type=float, default=0.5)
+parser.add_argument('--ratio', type=float, default=0.9)
+parser.add_argument('--thres_s', type=float, default=0.5)
+parser.add_argument('--thres_m', type=float, default=0.5)
 args = parser.parse_args()
 
 print(args)
@@ -56,7 +51,8 @@ num_classes = len(class_names)
 
 # Initial ratio
 _Graph.set_global_var('ratio', args.ratio)
-
+_Graph.set_global_var('thres_s', args.thres_s)
+_Graph.set_global_var('thres_m', args.thres_m)
 
 # Define model
 def get_base_model(base_model):
@@ -73,7 +69,7 @@ model_source_weights = {}
 for name, param in model_source.named_parameters():
     model_source_weights[name] = param.detach()
 
-# load target model
+#load target model
 model_pretrained = models.resnet101(pretrained=True)
 model_target = AFSNet(Bottleneck, [3, 4, 23, 3], num_classes=num_classes)
 pretrained_dict = model_pretrained.state_dict()
@@ -82,14 +78,12 @@ pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
 model_dict.update(pretrained_dict)
 model_target.load_state_dict(model_dict)
 
-# model_target=models.resnet101(pretrained=True)
-# model_target = get_base_model(args.base_model)
-# model_target.fc = nn.Linear(2048, num_classes)
+
 model_target.to(device)
+
 
 layer_outputs_source = []
 layer_outputs_target = []
-layer_outputs_h_l =[]
 
 
 def for_hook_source(module, input, output):
@@ -99,12 +93,8 @@ def for_hook_source(module, input, output):
 def for_hook_target(module, input, output):
     layer_outputs_target.append(output)
 
-def for_hook_h_l(module, input, output):
-    layer_outputs_h_l.append(output)
 
-
-
-fc_name = 'fc.'
+fc_name = 'fclass.'
 if args.base_model == 'resnet101':
     hook_layers = ['layer1.2.conv3', 'layer2.3.conv3', 'layer3.22.conv3', 'layer4.2.conv3']
     afdnet = [AFDNet(56 * 56, 56, 1).to(device),
@@ -123,18 +113,9 @@ def register_hook(model, func):
             layer.register_forward_hook(func)
 
 
-## new version hook function, the layer_outputs_targer get all gate layers outputs
-
-
-def register_hook_h_l(model, func):
-    for layer in model.modules():
-        if isinstance(layer, nn.Linear):
-            layer.register_forward_hook(hook=func)
-
-
 register_hook(model_source, for_hook_source)
 register_hook(model_target, for_hook_target)
-register_hook_h_l(model_target, for_hook_h_l)
+
 
 def reg_l2sp(model):
     fea_loss = torch.tensor(0.).to(device)
@@ -184,10 +165,6 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs):
             for i, (inputs, labels) in enumerate(dataloaders[phase]):
                 inputs = inputs.to(device)
                 labels = labels.to(device)
-                # if args.data_aug == 'improved' and phase == 'test':
-                #     bs, ncrops, c, h, w = inputs.size()
-                #     inputs = inputs.view(-1, c, h, w)
-
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs = model(inputs)
@@ -228,8 +205,10 @@ def train_model(model, criterion, optimizer, scheduler, num_epochs):
             print('{} epoch: {:d} Loss: {:.4f} Acc: {:.4f}'.format(
                 phase, epoch, epoch_loss, epoch_acc))
             time_elapsed = time.time() - since
-            print('Training complete in {:.0f}m {:.0f}s'.format(
-                time_elapsed // 60, time_elapsed % 60))
+            if phase=='train':
+                print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+            else:
+                print('Testing complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
             if epoch == num_epochs - 1:
                 print('{} epoch: last Loss: {:.4f} Acc: {:.4f}'.format(
                     phase, epoch_loss, epoch_acc))
@@ -265,15 +244,13 @@ elif args.lr_scheduler == 'explr':
     lr_decay = optim.lr_scheduler.ExponentialLR(optimizer_ft, gamma=math.exp(math.log(0.1) / decay_epochs))
 
 criterion = nn.CrossEntropyLoss()
+# first 4500 step SGD
 train_model(model_target, criterion, optimizer_ft, lr_decay, num_epochs)
-
-print(layer_outputs_h_l.__len__())
-# updating
-# threshold_m and threshold_s is not defined
-# mean_para,var_para, pro =update_param(layer_outputs_h_l, ratio)
-# update_sl(model_target, threshold_s, var_para)
-# update_gama_l(model_target,mean_para)
-# update_m_l(model_target,pro,threshold_m)
-
+#update the s gamma m of afs
+model_target.eval()
+update_afs(model_target,dataloaders['test'],args.thres_m,args.thres_s)
+model_target.train()
+# next 4500 steps SGD
+train_model(model_target, criterion, optimizer_ft, lr_decay, num_epochs)
 if args.save_model != '':
     torch.save(model_target, args.save_model)
