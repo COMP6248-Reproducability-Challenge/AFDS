@@ -21,7 +21,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from data.load import load_datasets
 
-parser = argparse.ArgumentParser(description='DELTA')
+parser = argparse.ArgumentParser(description='AFDS')
 parser.add_argument('--data_dir')
 parser.add_argument('--save_model', default='')
 parser.add_argument('--base_model', choices=['resnet101', 'resnet50'], default='resnet101')
