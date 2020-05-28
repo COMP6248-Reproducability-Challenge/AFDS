@@ -12,7 +12,10 @@ We used [this](https://github.com/uhomelee/DeepLearningCourseWork) project as ba
 - Python 2.7
 - PyTorch 
 This implementation only supports running with GPUs.
-##
+## Dataset
+We evaluate the methods with 6 diferent benchmark datasets: Caltech-256 (Grin et al., 2007) of 256 general object categories; Stanford Dogs 120 (Khosla et al., 2011) specializes to images containing dogs; MIT Indoors 67 (Quattoni & Torralba, 2009) for indoor scene classiﬁcation; Caltech-UCSD Birds-200-2011 (CUB-200-2011) (Wah et al., 2011) for classifying birds; and Food-101 (Bossard et al., 2014) for food categories. Example of 'Standord Dog' dataset:
+- Run `stanford_dogs_data.py`. Importing the dataset online, preprocessing the dataset, and dividing it into test set and training set according to the generated labels
+
 
 
 ## Team members:
