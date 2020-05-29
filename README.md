@@ -27,7 +27,7 @@ We evaluate the methods with 6 diferent benchmark datasets: Caltech-256 (Grin et
 
 **Arguments:**
 -  `lr_init `: The learning rate of initialization. default =  `0.01 `.
--  `max_iter `: Maximum number of iterations for SGD, int type, default is 4500.
+-  `max_iter `: Maximum number of iterations for SGD, int type, default = ` 4500 `.
 -  `image_size `：Scaling images to this size before cropping.
 -  `batch_size `: Batch size. default=  `48 `
 -  `lr_scheduler `: The module provides some methods to adjust the learning rate based on the number of epoch trainings. Under normal     circumstances, with the increase of epoch, the learning rate is gradually reduced to achieve a better training effect.
