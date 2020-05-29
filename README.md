@@ -1,20 +1,18 @@
 # The COMP6248 Reproducibility Challenge
 Pytorch implement of [Pay Attention to Features, Transfer Learn Faster CNNs](https://openreview.net/pdf?id=ryxyCeHtPB)
 ## Introduction
-A common example of transfer learning is to train a model on a large data set, and then using the regularization methods on the target data to set fine-tune the pre-training weights. In order to explore the two questions of which neurons are available for source knowledge transfer and the importance of the target model in practice, the article proposes to establish a new model: AFDS (Attention Feature Extraction and Selection), which is mainly aimed on training small neural network. AFD (Attention Feature Distillation) is a regularizer that learning the importance of each channel in the output activation. AFS (Selection of Attention Features) can understand the importance of each channel in the output of the ConvBN layer. Our main work is to deploy and update the AFS model in ResNet-101. AFS consists of a global average pool, and then creating a fully connected (FC) layer after each ConvBN layer in the source model.  Finally, we use AFD regularization to fine-tune the target model on the target dataset to obtain the target model. AFDS is deployed on ResNet-101 and the latest calculation is simplified, and we use three data sets to train the model, there are Stanford Dogs 120, MIT Indoor 67 and Caltech-256 and other extensive data. Under these datasets, the AFDS model still maintains a high task accuracy.
+A common example of transfer learning is to train a model on a large data set, and then using the regularization methods on the target data to set fine-tune the pre-training weights. In order to explore the two questions of which neurons are available for source knowledge transfer and the importance of the target model in practice, the article proposes to establish a new model: AFDS (Attention Feature Extraction and Selection), which is mainly aimed on training small neural network. AFD (Attention Feature Distillation) is a regularizer that learning the importance of each channel in the output activation. AFS (Selection of Attention Features) can understand the importance of each channel in the output of the ConvBN layer. 
 ## High-level overview of AFDS
-We used [this](https://github.com/uhomelee/DeepLearningCourseWork) project as baseline.
-
-![image](https://github.com/uhomelee/DeepLearningCourseWork/blob/master/pic/1.png)
 ![image](https://github.com/uhomelee/DeepLearningCourseWork/blob/master/pic/2.png)
+There is some differences on the source model in practice, which is stated in report. 
 ## Dependencies
-- Python 2.7
-- PyTorch 
-This implementation only supports running with GPUs.
+- Python 3.7
+- PyTorch 1.3.0
+This implementation only supports running with GPUs.(require around 8G memory when testing Standord Dog Dataset and `batch_size=16` )
 ## Dataset
 We evaluate the methods with 6 diferent benchmark datasets: Caltech-256 (Grin et al., 2007) of 256 general object categories; Stanford Dogs 120 (Khosla et al., 2011) specializes to images containing dogs; MIT Indoors 67 (Quattoni & Torralba, 2009) for indoor scene classiﬁcation; Caltech-UCSD Birds-200-2011 (CUB-200-2011) (Wah et al., 2011) for classifying birds; and Food-101 (Bossard et al., 2014) for food categories. Example of 'Standord Dog' dataset:
-- Run `stanford_dogs_data.py`. Importing the dataset online, preprocessing the dataset, and dividing it into test set and training set according to the generated labels.
-- Run `load.py `，This project implement a function, `def load_datasets(set_name, input \_ size):`, given the name of dataset to return a `Dataloader` class. 
+- `stanford_dogs_data.py`. Importing the dataset online, preprocessing the dataset, and dividing it into test set and training set according to the generated labels.
+- `load.py `，This project implement a function, `def load_datasets(set_name, input \_ size):`, given the name of dataset to return a `Dataloader` class. 
 - Run `load_caltech256.py`, this file specifically download Caltech256 dataset, and split training and testing set. Use the code 
 ``` train_data, test_data, num_class = load_data() ``` to get training dataset, testing dataset and the number of classes.
 - `transforms.Resize`：Reseting image resolution.
